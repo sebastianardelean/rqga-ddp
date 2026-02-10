@@ -1,0 +1,4 @@
+name: quantum
+dependencies:
+  - python=3.13.5
+  - pip

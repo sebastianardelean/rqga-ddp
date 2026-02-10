@@ -1,5 +1,0 @@
-# RQGA-DDP
-
-## Usage
-
-## Installation
