@@ -205,7 +205,7 @@ def rqga():
     carry_help = QuantumRegister(1, "help")
     ws = QuantumRegister(1, "ws")
     max_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS, "max")
-    creg = ClassicalRegister(NO_OF_QUBITS_INDIVIDUAL, "m")
+    creg = ClassicalRegister(NO_OF_QUBITS_FITNESS, "m")
     qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
 
     qc.h(ind_qreg)
@@ -235,7 +235,7 @@ def rqga():
             qc.append(grover_gate, fit_qreg[:])
 
         qc.barrier()
-        qc.measure(ind_qreg, creg)
+        qc.measure(fit_qreg, creg)
 
         simulator = AerSimulator(method="statevector", device="GPU")
 
@@ -246,7 +246,7 @@ def rqga():
         new_fitness_value = int(max_item[0], 2)
         print(f"Found solution with fitness {new_fitness_value}")
         rqga_results.append((generation, new_fitness_value))
-        # get the max value
+        
         generation += 1
         # reset max value qreg
         for i in range(0, NO_OF_QUBITS_FITNESS):
