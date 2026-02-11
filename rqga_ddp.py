@@ -215,9 +215,7 @@ def rqga():
     ufit_gate = ufit()
     qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
 
-    # while new_fitness_value != max_value and generation < NO_OF_GENERATIONS:
-    while generation < 1:  # NO_OF_GENERATIONS:
-        # while generation < NO_OF_GENERATIONS:
+    while new_fitness_value != max_value and generation < NO_OF_GENERATIONS:
         max_value = new_fitness_value
         max_value_bin = to_binary(max_value, NO_OF_QUBITS_FITNESS, True)
 
@@ -229,8 +227,7 @@ def rqga():
         oracle_gate = oracle(max_value_bin)
 
         grover_gate = grover()
-        for _ in range(0, 1):  # NO_OF_MAX_GROVER_ITERATIONS):
-            # for _ in range(0,NO_OF_MAX_GROVER_ITERATIONS):
+        for _ in range(0, NO_OF_MAX_GROVER_ITERATIONS):
             qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + carry_help[:] + ws[:])
             qc.append(grover_gate, fit_qreg[:])
 
