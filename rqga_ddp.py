@@ -33,8 +33,8 @@ ItemConfiguration = namedtuple('Item', 'm,v')
 NO_OF_QUBITS_FITNESS = 8
 NO_OF_QUBITS_INDIVIDUAL = 4
 POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
-NO_OF_MAX_GROVER_ITERATIONS = int(math.sqrt(2**NO_OF_QUBITS_INDIVIDUAL-1))
-NO_OF_GENERATIONS = 50
+NO_OF_MAX_GROVER_ITERATIONS = round(math.pi/4 * math.sqrt(2**NO_OF_QUBITS_FITNESS) - 0.5)
+NO_OF_GENERATIONS = 10
 
 MAX_ALLOWED_MASS = 10
 TOTAL_VALUE = 22
@@ -141,8 +141,8 @@ def oracle(max_value):
     # define and initialize oracle workspace quantum register
     oracle = QuantumRegister(1, "oqreg")
 
-    subtractor = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS, kind='full')
-    adder = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS, kind='fixed')
+    subtractor = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS , kind='full')
+    adder = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS , kind='fixed')
     oracle_circ = QuantumCircuit(fit_reg, max_reg, carry_in, carry_out, carry_help, oracle, name="O")
     # Encode for subtraction
 
@@ -151,15 +151,29 @@ def oracle(max_value):
 
     oracle_circ.append(subtractor, [carry_in[0]] + max_reg[:] + fit_reg[:-1] + [carry_out[0]])
 
-    oracle_circ.h(oracle[0])
+
+    # flip ancilla if fitreg = 0. After subtraction, if max is the actual fitness value, then the result in fitreg = 0 -> solution
+    # keep in mind that the valid is 1 if the individual is valid.
+    # Therefore, if fitness is the target, all the bits should be 0, except valid. 
+    oracle_circ.x(fit_reg)
+    oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS])
     controls = [fit_reg[i] for i in range(NO_OF_QUBITS_FITNESS + 1)]
     mcx = MCXGate(len(controls))  # reusable gate
     oracle_circ.append(mcx, controls + [oracle[0]])
-    oracle_circ.h(oracle[0])
+    oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS]) 
+    oracle_circ.x(fit_reg)
 
-    # oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
-    # oracle_circ.cx(fit_reg[NO_OF_QUBITS_FITNESS-1],oracle[0])
-    # oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
+    #oracle_circ.h(oracle[0])
+    #controls = [fit_reg[i] for i in range(NO_OF_QUBITS_FITNESS + 1)]
+    #mcx = MCXGate(len(controls))  # reusable gate
+    #oracle_circ.append(mcx, controls + [oracle[0]])
+    #oracle_circ.h(oracle[0])
+    
+    #oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
+    #oracle_circ.cz(fit_reg[NO_OF_QUBITS_FITNESS-1], oracle[0])
+    #oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
+
+
 
     oracle_circ.x(max_reg)
     oracle_circ.x(carry_in[0])
@@ -195,7 +209,13 @@ def bin_to_dec(bit_str):
     bits = np.array(list(bit_str), dtype=int)  # convert to array
     decimal = np.dot(bits, 2 ** np.arange(bits.size))  # unsigned value
     decimal = decimal - (1 << bits.size) * (bits[-1])  # apply 2's complement if MSB=1
-    return decimal
+    return int(decimal)
+
+def bin_to_dec_msb(bit_str):
+    bits = np.array(list(bit_str), dtype=int)           # covert to array
+    decimal = np.dot(bits[::-1], 2 ** np.arange(bits.size))  # treat LSB at index 0
+    decimal = decimal - (1 << bits.size) * bits[0]     # subtract 2^n if MSB=1
+    return int(decimal)
 
 
 def rqga():
@@ -206,13 +226,14 @@ def rqga():
 
 
     while new_fitness_value != max_value and generation < NO_OF_GENERATIONS:
+    #while generation < 1:
         ind_qreg = QuantumRegister(NO_OF_QUBITS_INDIVIDUAL, "i")
         fit_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS + 1, "f")
         carry_in = QuantumRegister(1, "cin")
         carry_out = QuantumRegister(1, "cout")
         carry_help = QuantumRegister(1, "help")
         ws = QuantumRegister(1, "ws")
-        max_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS, "max")
+        max_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS , "max")
         creg = ClassicalRegister(NO_OF_QUBITS_FITNESS, "m")
         qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
 
@@ -223,7 +244,7 @@ def rqga():
         ufit_gate = ufit()
         qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
         max_value = new_fitness_value
-        max_value_bin = to_binary(max_value, NO_OF_QUBITS_FITNESS, True)
+        max_value_bin = to_binary(max_value, NO_OF_QUBITS_FITNESS , True)
 
         # Encode Max value into max_reg
         for i in range(0, NO_OF_QUBITS_FITNESS):
@@ -233,21 +254,23 @@ def rqga():
         oracle_gate = oracle(max_value_bin)
 
         grover_gate = grover()
-        for _ in range(0, NO_OF_MAX_GROVER_ITERATIONS):
+        #for _ in range(0, NO_OF_MAX_GROVER_ITERATIONS):
+        for _ in range(0,1):
             qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + carry_help[:] + ws[:])
             qc.append(grover_gate, fit_qreg[:])
 
         qc.barrier()
         for i in range(NO_OF_QUBITS_FITNESS):
             qc.measure(fit_qreg[i], creg[i])
-
+        #qc.measure(fit_qreg,creg)
         simulator = AerSimulator(method="statevector", device="GPU")
 
         qc = transpile(qc, simulator)
         results = simulator.run(qc).result()
         counts = results.get_counts()
         max_item = max(counts.items(), key=operator.itemgetter(1))
-        new_fitness_value = bin_to_dec(max_item[0])
+        print(f"Counts are: {counts} and max is:{max_item}")
+        new_fitness_value = bin_to_dec_msb(max_item[0])
         print(f"Found solution with fitness {new_fitness_value} in generation {generation} with {NO_OF_MAX_GROVER_ITERATIONS} grover iterations")
         rqga_results.append((generation, new_fitness_value))
 
