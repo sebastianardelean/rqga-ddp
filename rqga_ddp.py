@@ -235,7 +235,8 @@ def rqga():
             qc.append(grover_gate, fit_qreg[:])
 
         qc.barrier()
-        qc.measure(fit_qreg, creg)
+        for i in range(NO_OF_QUBITS_FITNESS):
+            qc.measure(fit_qreg[i], creg[i])
 
         simulator = AerSimulator(method="statevector", device="GPU")
 
@@ -246,7 +247,7 @@ def rqga():
         new_fitness_value = int(max_item[0], 2)
         print(f"Found solution with fitness {new_fitness_value}")
         rqga_results.append((generation, new_fitness_value))
-        
+
         generation += 1
         # reset max value qreg
         for i in range(0, NO_OF_QUBITS_FITNESS):
