@@ -198,24 +198,24 @@ def rqga():
     new_fitness_value = get_random_value(0, 2 ** NO_OF_QUBITS_FITNESS)
     generation = 0
 
-    ind_qreg = QuantumRegister(NO_OF_QUBITS_INDIVIDUAL, "i")
-    fit_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS + 1, "f")
-    carry_in = QuantumRegister(1, "cin")
-    carry_out = QuantumRegister(1, "cout")
-    carry_help = QuantumRegister(1, "help")
-    ws = QuantumRegister(1, "ws")
-    max_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS, "max")
-    creg = ClassicalRegister(NO_OF_QUBITS_FITNESS, "m")
-    qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
-
-    qc.h(ind_qreg)
-    qc.x(ws)
-    qc.h(ws)
-
-    ufit_gate = ufit()
-    qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
 
     while new_fitness_value != max_value and generation < NO_OF_GENERATIONS:
+        ind_qreg = QuantumRegister(NO_OF_QUBITS_INDIVIDUAL, "i")
+        fit_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS + 1, "f")
+        carry_in = QuantumRegister(1, "cin")
+        carry_out = QuantumRegister(1, "cout")
+        carry_help = QuantumRegister(1, "help")
+        ws = QuantumRegister(1, "ws")
+        max_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS, "max")
+        creg = ClassicalRegister(NO_OF_QUBITS_FITNESS, "m")
+        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
+
+        qc.h(ind_qreg)
+        qc.x(ws)
+        qc.h(ws)
+
+        ufit_gate = ufit()
+        qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
         max_value = new_fitness_value
         max_value_bin = to_binary(max_value, NO_OF_QUBITS_FITNESS, True)
 
