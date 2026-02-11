@@ -191,6 +191,12 @@ def grover():
 
     return grover_circ.to_instruction()
 
+def bin_to_dec(bit_str):
+    bits = np.array(list(bit_str), dtype=int)  # convert to array
+    decimal = np.dot(bits, 2 ** np.arange(bits.size))  # unsigned value
+    decimal = decimal - (1 << bits.size) * (bits[-1])  # apply 2's complement if MSB=1
+    return decimal
+
 
 def rqga():
     rqga_results = []
@@ -241,7 +247,7 @@ def rqga():
         results = simulator.run(qc).result()
         counts = results.get_counts()
         max_item = max(counts.items(), key=operator.itemgetter(1))
-        new_fitness_value = int(max_item[0], 2)
+        new_fitness_value = bin_to_dec(max_item[0])
         print(f"Found solution with fitness {new_fitness_value} in generation {generation} with {NO_OF_MAX_GROVER_ITERATIONS} grover iterations")
         rqga_results.append((generation, new_fitness_value))
 
