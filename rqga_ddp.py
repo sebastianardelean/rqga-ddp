@@ -242,7 +242,7 @@ def rqga():
         counts = results.get_counts()
         max_item = max(counts.items(), key=operator.itemgetter(1))
         new_fitness_value = int(max_item[0], 2)
-        print(f"Found solution with fitness {new_fitness_value}")
+        print(f"Found solution with fitness {new_fitness_value} in generation {generation} with {NO_OF_MAX_GROVER_ITERATIONS} grover iterations")
         rqga_results.append((generation, new_fitness_value))
 
         generation += 1
