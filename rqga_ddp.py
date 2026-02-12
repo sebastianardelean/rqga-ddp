@@ -10,6 +10,7 @@ import operator
 import matplotlib.pyplot as plt
 
 
+
 # Where to save the figures
 PROJECT_ROOT_DIR = "."
 IMAGES_PATH = os.path.join(PROJECT_ROOT_DIR, "plots")
