@@ -1,3 +1,5 @@
+# DDP Problem
+
 import sys
 assert sys.version_info >= (3, 5)
 
@@ -8,7 +10,7 @@ import math
 import operator
 # import matplotlib as mpl
 import matplotlib.pyplot as plt
-
+import itertools
 
 
 # Where to save the figures
@@ -28,11 +30,61 @@ from qiskit.circuit.library import MCXGate
 from qiskit.circuit.library import grover_operator
 from qiskit.circuit.library import CDKMRippleCarryAdder
 
-from collections import namedtuple
-ItemConfiguration = namedtuple('Item', 'm,v')
 
+
+# PROBLEM SETUP
+
+A = [7, 8, 18]
+B = [1,2,2,4,5,5,5,9]
+C = [1,2,2,2,2,3,4,5,5,7]
+
+SIZE_A = len(A)
+SIZE_B = len(B)
+TARGET = sorted(C)
+
+
+# ENCODING
+
+BITS_M = math.ceil(math.log2(SIZE_A))
+BITS_N = math.ceil(math.log2(SIZE_B))
+NO_OF_QUBITS_INDIVIDUAL = SIZE_A * BITS_M + SIZE_B * BITS_N
+
+
+
+
+# Helper functions
+# ----------------------------
+# Decode binary chromosome
+# ----------------------------
+def decode_solution(solution):
+    """Decode binary solution into mu and nu indices."""
+    mu = []
+    pos = 0
+    for _ in range(SIZE_A):
+        bits = solution[pos:pos + BITS_M]
+        val = int(''.join(map(str, bits)), 2)
+        mu.append(val)
+        pos += BITS_M
+
+    nu = []
+    for _ in range(SIZE_B):
+        bits = solution[pos:pos + BITS_N]
+        val = int(''.join(map(str, bits)), 2)
+        nu.append(val)
+        pos += BITS_N
+
+    return mu, nu
+
+def cumulative_sum(arr):
+    return np.cumsum(arr).tolist()
+
+
+def step_difference(arr):
+    return [arr[0]] + [arr[i] - arr[i-1] for i in range(1, len(arr))]
+
+# Fitness value is float. Must encode somehow
 NO_OF_QUBITS_FITNESS = 8
-NO_OF_QUBITS_INDIVIDUAL = 4
+
 POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
 NO_OF_MAX_GROVER_ITERATIONS = round(math.pi/4 * math.sqrt(2**NO_OF_QUBITS_FITNESS) - 0.5)
 NO_OF_GENERATIONS = 10
