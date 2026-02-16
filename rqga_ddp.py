@@ -48,6 +48,13 @@ TARGET = sorted(C)
 BITS_M = math.ceil(math.log2(SIZE_A))
 BITS_N = math.ceil(math.log2(SIZE_B))
 NO_OF_QUBITS_INDIVIDUAL = SIZE_A * BITS_M + SIZE_B * BITS_N
+NO_OF_QUBITS_FITNESS = 8
+
+POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
+NO_OF_MAX_GROVER_ITERATIONS = round(math.pi/4 * math.sqrt(2**NO_OF_QUBITS_FITNESS) - 0.5)
+NO_OF_GENERATIONS = 10
+
+
 
 
 
@@ -82,20 +89,8 @@ def cumulative_sum(arr):
 def step_difference(arr):
     return [arr[0]] + [arr[i] - arr[i-1] for i in range(1, len(arr))]
 
-# Fitness value is float. Must encode somehow
-NO_OF_QUBITS_FITNESS = 8
-
-POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
-NO_OF_MAX_GROVER_ITERATIONS = round(math.pi/4 * math.sqrt(2**NO_OF_QUBITS_FITNESS) - 0.5)
-NO_OF_GENERATIONS = 10
-
-MAX_ALLOWED_MASS = 10
-TOTAL_VALUE = 22
-items = [ItemConfiguration(3, 3),ItemConfiguration(2, 5),ItemConfiguration(4, 10),ItemConfiguration(7, 4)]
-#best result is [1, 1, 1, 0]	9	18	True
 
 
-rng = np.random.default_rng()
 
 
 def to_binary(value, number_of_bits, lsb=False):
@@ -113,11 +108,54 @@ def to_binary(value, number_of_bits, lsb=False):
         return np.flip(np.array(list(np.binary_repr(value, number_of_bits)), dtype=int))
     return np.array(list(np.binary_repr(value, number_of_bits)), dtype=int)
 
-def get_random_value(min_v, max_v):
-    return rng.integers(min_v,max_v)
 
-def fitness_function(mass,value):
-    return int(value - (TOTAL_VALUE+1)*divmod(mass,MAX_ALLOWED_MASS)[0])
+
+def fitness_function(solution) -> int:
+    # chromosome encoding: [ u | ν ]
+    mu,nu = decode_solution(solution)
+
+
+
+    # Check if valid permutations (exact set match)
+    if set(mu) != set(range(SIZE_A)) or set(nu) != set(range(SIZE_B)):
+        return False,0  # invalid permutation
+
+    A_perm = [A[i] for i in mu]
+    B_perm = [B[i] for i in nu]
+    C_mod = list(TARGET)
+
+    k = len(C_mod)
+    expected_k = SIZE_A + SIZE_B - 1
+
+    # --- REPAIR SEQUENCE LOGIC ---
+    if k < expected_k:
+        # Rule 1: Add 0-length fragments to target C
+        delta = expected_k - k
+        C_mod.extend([0] * delta)
+
+    elif k > expected_k:
+        # Rule 2: Add 0-length fragments to the shorter sequence among A and B
+        delta = k - expected_k
+        if SIZE_A <= SIZE_B:
+            A_perm.extend([0] * delta)
+        else:
+            B_perm.extend([0] * delta)
+
+    A_cum = cumulative_sum(A_perm)
+    B_cum = cumulative_sum(B_perm)
+
+    merged = sorted(A_cum + B_cum)
+
+    steps = step_difference(merged)
+
+    steps_sorted = sorted(set(steps))
+
+
+
+    error = sum(abs(s - t) for s, t in zip(steps_sorted, TARGET))
+#    fitness = 1.0 / (1.0 + error)
+#    print(f"mu: {mu}; nu:{nu} -> fitness: {fitness}")
+    return True, error
 
 def string_to_list(string):
     return_list = []
@@ -126,18 +164,7 @@ def string_to_list(string):
             return_list.append(int(i))
     return return_list
 
-def calculate_individual_fitness(individual_bin_configuration):
-    calculated_mass = 0
-    calculated_value = 0
-    for i in range(0, NO_OF_QUBITS_INDIVIDUAL):
-        if individual_bin_configuration[i]==1:
-            calculated_mass += items[i].m
-            calculated_value += items[i].v
-    fitness_value = fitness_function(calculated_mass,calculated_value)
-    if calculated_mass < MAX_ALLOWED_MASS:
-        return True, fitness_value
-    else:
-        return False,fitness_value
+
 
 def ufit():
     # define quantum registers
@@ -158,7 +185,7 @@ def ufit():
                 qc.x(ind_qreg[k])
 
         # compute fitness
-        valid, fitness_value = calculate_individual_fitness(individual_binary)
+        valid, fitness_value = fitness_function(individual_binary)
         fitness_value_binary = to_binary(
             fitness_value, NO_OF_QUBITS_FITNESS, True
         )
@@ -273,13 +300,14 @@ def bin_to_dec_msb(bit_str):
 
 def rqga():
     rqga_results = []
-    max_value = 0
-    new_fitness_value = get_random_value(0, 2 ** NO_OF_QUBITS_FITNESS)
+    max_value = -1
+    new_fitness_value = 0
     generation = 0
 
 
     while new_fitness_value != max_value and generation < NO_OF_GENERATIONS:
     #while generation < 1:
+        print("Creating the circuit!")
         ind_qreg = QuantumRegister(NO_OF_QUBITS_INDIVIDUAL, "i")
         fit_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS + 1, "f")
         carry_in = QuantumRegister(1, "cin")
@@ -290,25 +318,31 @@ def rqga():
         creg = ClassicalRegister(NO_OF_QUBITS_FITNESS, "m")
         qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
 
+        print("Creating the superposition")
         qc.h(ind_qreg)
         qc.x(ws)
         qc.h(ws)
 
+        print("Applying ufit")
         ufit_gate = ufit()
         qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
         max_value = new_fitness_value
         max_value_bin = to_binary(max_value, NO_OF_QUBITS_FITNESS , True)
 
+        print("Encoding max value")
         # Encode Max value into max_reg
         for i in range(0, NO_OF_QUBITS_FITNESS):
             if max_value_bin[i] == 1:
                 qc.x(max_qreg[i])
 
+        print("Creating the oracle gate")
         oracle_gate = oracle(max_value_bin)
-
+        print("Creating grover gate")
         grover_gate = grover()
         #for _ in range(0, NO_OF_MAX_GROVER_ITERATIONS):
+        
         for _ in range(0,1):
+            print("Apply grover")
             qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + carry_help[:] + ws[:])
             qc.append(grover_gate, fit_qreg[:])
 

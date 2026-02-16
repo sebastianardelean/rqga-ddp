@@ -155,7 +155,8 @@ def oracle(max_value):
 
     # flip ancilla if fitreg = 0. After subtraction, if max is the actual fitness value, then the result in fitreg = 0 -> solution
     # keep in mind that the valid is 1 if the individual is valid.
-    # Therefore, if fitness is the target, all the bits should be 0, except valid. 
+    # Therefore, if fitness is the target, all the bits should be 0, except valid.
+    # oracle_circ.x(fit_reg) adds an X on all qubits from fitness registers. Since the valid must be 1, if valid, we have to invert it back
     oracle_circ.x(fit_reg)
     oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS])
     controls = [fit_reg[i] for i in range(NO_OF_QUBITS_FITNESS + 1)]
@@ -164,15 +165,7 @@ def oracle(max_value):
     oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS]) 
     oracle_circ.x(fit_reg)
 
-    #oracle_circ.h(oracle[0])
-    #controls = [fit_reg[i] for i in range(NO_OF_QUBITS_FITNESS + 1)]
-    #mcx = MCXGate(len(controls))  # reusable gate
-    #oracle_circ.append(mcx, controls + [oracle[0]])
-    #oracle_circ.h(oracle[0])
-    
-    #oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
-    #oracle_circ.cz(fit_reg[NO_OF_QUBITS_FITNESS-1], oracle[0])
-    #oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
+
 
 
 
