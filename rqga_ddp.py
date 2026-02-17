@@ -29,7 +29,7 @@ from qiskit.visualization import plot_histogram
 from qiskit.circuit.library import MCXGate
 from qiskit.circuit.library import grover_operator
 from qiskit.circuit.library import CDKMRippleCarryAdder
-
+from qiskit.circuit.library import FullAdderGate
 
 
 # PROBLEM SETUP
@@ -53,7 +53,7 @@ NO_BITS_RANK_B = math.ceil(math.log2(NO_RANKS_B))
 BITS_M = math.ceil(math.log2(SIZE_A))
 BITS_N = math.ceil(math.log2(SIZE_B))
 NO_OF_QUBITS_INDIVIDUAL = NO_BITS_RANK_A + NO_BITS_RANK_B
-NO_OF_QUBITS_FITNESS = 8
+NO_OF_QUBITS_FITNESS = 1
 
 POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
 NO_OF_MAX_GROVER_ITERATIONS = round(math.pi/4 * math.sqrt(2**NO_OF_QUBITS_FITNESS) - 0.5)
@@ -240,21 +240,24 @@ def oracle(max_value):
     max_reg = QuantumRegister(NO_OF_QUBITS_FITNESS, "max")
     # define and initialize carry quantum register
     carry_in = QuantumRegister(1, "cin")
-    carry_out = QuantumRegister(1, "cout")
-    carry_help = QuantumRegister(1, "help")
+    #carry_out = QuantumRegister(1, "cout")
+    #carry_help = QuantumRegister(1, "help")
     # define and initialize oracle workspace quantum register
     oracle = QuantumRegister(1, "oqreg")
 
-    subtractor = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS , kind='full')
-    adder = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS , kind='fixed')
-    oracle_circ = QuantumCircuit(fit_reg, max_reg, carry_in, carry_out, carry_help, oracle, name="O")
+    #subtractor = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS , kind='full')
+    #adder = CDKMRippleCarryAdder(NO_OF_QUBITS_FITNESS , kind='fixed')
+    oracle_circ = QuantumCircuit(fit_reg, max_reg, carry_in, oracle, name="O")
     # Encode for subtraction
 
     oracle_circ.x(carry_in[0])
     oracle_circ.x(max_reg)
 
-    oracle_circ.append(subtractor, [carry_in[0]] + max_reg[:] + fit_reg[:-1] + [carry_out[0]])
+    #racle_circ.append(subtractor, [carry_in[0]] + max_reg[:] + fit_reg[:-1] + [carry_out[0]])
 
+    # Subtract 1 qubit value
+    oracle_circ.cx(max_reg[0], fit_reg[0])
+    oracle_circ.cx(carry_in[0], fit_reg[0])
 
     # flip ancilla if fitreg = 0. After subtraction, if max is the actual fitness value, then the result in fitreg = 0 -> solution
     # keep in mind that the valid is 1 if the individual is valid.
@@ -267,21 +270,16 @@ def oracle(max_value):
     oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS]) 
     oracle_circ.x(fit_reg)
 
-    #oracle_circ.h(oracle[0])
-    #controls = [fit_reg[i] for i in range(NO_OF_QUBITS_FITNESS + 1)]
-    #mcx = MCXGate(len(controls))  # reusable gate
-    #oracle_circ.append(mcx, controls + [oracle[0]])
-    #oracle_circ.h(oracle[0])
-    
-    #oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
-    #oracle_circ.cz(fit_reg[NO_OF_QUBITS_FITNESS-1], oracle[0])
-    #oracle_circ.x(fit_reg[NO_OF_QUBITS_FITNESS-1])
-
 
 
     oracle_circ.x(max_reg)
     oracle_circ.x(carry_in[0])
-    oracle_circ.append(adder, max_reg[:] + fit_reg[:-1] + [carry_help[0]])
+    #oracle_circ.append(adder, max_reg[:] + fit_reg[:-1] + [carry_help[0]])
+
+    oracle_circ.cx(max_reg[0], fit_reg[0])
+
+
+
     # print(f"Oracle circuit:\n{oracle_circ.draw()}")
     return oracle_circ.to_instruction()
 
@@ -335,12 +333,12 @@ def rqga():
         ind_qreg = QuantumRegister(NO_OF_QUBITS_INDIVIDUAL, "i")
         fit_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS + 1, "f")
         carry_in = QuantumRegister(1, "cin")
-        carry_out = QuantumRegister(1, "cout")
-        carry_help = QuantumRegister(1, "help")
+        #carry_out = QuantumRegister(1, "cout")
+        #carry_help = QuantumRegister(1, "help")
         ws = QuantumRegister(1, "ws")
         max_qreg = QuantumRegister(NO_OF_QUBITS_FITNESS , "max")
         creg = ClassicalRegister(NO_OF_QUBITS_FITNESS, "m")
-        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
+        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in,  max_qreg, ws, creg)
 
         print("Creating the superposition")
         qc.h(ind_qreg)
@@ -367,7 +365,7 @@ def rqga():
         
         for _ in range(0,1):
             print("Apply grover")
-            qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + carry_help[:] + ws[:])
+            qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:]  + ws[:])
             qc.append(grover_gate, fit_qreg[:])
 
         qc.barrier()
