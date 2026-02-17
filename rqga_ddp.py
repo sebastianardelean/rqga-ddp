@@ -376,7 +376,7 @@ def rqga():
         #qc.measure(fit_qreg,creg)
         simulator = AerSimulator(method="statevector", device="GPU")
 
-        qc = transpile(qc, simulator)
+        #qc = transpile(qc, simulator)
         results = simulator.run(qc).result()
         counts = results.get_counts()
         max_item = max(counts.items(), key=operator.itemgetter(1))
