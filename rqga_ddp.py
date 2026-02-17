@@ -210,14 +210,11 @@ def ufit():
 
         # compute fitness
         valid, fitness_value = fitness_function(individual_binary)
-        fitness_value_binary = to_binary(
-            fitness_value, NO_OF_QUBITS_FITNESS, True
-        )
 
-        # write fitness value
-        for k in range(NO_OF_QUBITS_FITNESS):
-            if fitness_value_binary[k] == 1:
-                qc.append(mcx, controls + [fit_qreg[k]])
+        if fitness_value == 1:
+            qc.append(mcx, controls + [fit_qreg[0]])
+
+
 
         # mark validity bit
         if valid:
