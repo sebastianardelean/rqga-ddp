@@ -42,12 +42,17 @@ SIZE_A = len(A)
 SIZE_B = len(B)
 TARGET = sorted(C)
 
+NO_RANKS_A = math.factorial(SIZE_A)
+NO_RANKS_B = math.factorial(SIZE_B)
+
+NO_BITS_RANK_A = math.ceil(math.log2(NO_RANKS_A))
+NO_BITS_RANK_B = math.ceil(math.log2(NO_RANKS_B))
 
 # ENCODING
 
 BITS_M = math.ceil(math.log2(SIZE_A))
 BITS_N = math.ceil(math.log2(SIZE_B))
-NO_OF_QUBITS_INDIVIDUAL = SIZE_A * BITS_M + SIZE_B * BITS_N
+NO_OF_QUBITS_INDIVIDUAL = NO_BITS_RANK_A + NO_BITS_RANK_B
 NO_OF_QUBITS_FITNESS = 8
 
 POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
@@ -60,27 +65,45 @@ NO_OF_GENERATIONS = 10
 
 
 # Helper functions
+
+def rank_perm(p):
+    n = len(p)
+    rank = 0
+    for i in range(n):
+        smaller = sum(p[j] < p[i] for j in range(i+1, n))
+        rank += smaller * math.factorial(n - i - 1)
+    return rank
+
+def unrank_perm(n, rank):
+    import math
+
+    elements = list(range(n))
+    perm = []
+
+    for i in range(n-1, -1, -1):
+        fact = math.factorial(i)
+        idx = rank // fact
+        rank %= fact
+        perm.append(elements.pop(idx))
+
+    return perm
+
 # ----------------------------
 # Decode binary chromosome
 # ----------------------------
 def decode_solution(solution):
-    """Decode binary solution into mu and nu indices."""
-    mu = []
-    pos = 0
-    for _ in range(SIZE_A):
-        bits = solution[pos:pos + BITS_M]
-        val = int(''.join(map(str, bits)), 2)
-        mu.append(val)
-        pos += BITS_M
-
-    nu = []
-    for _ in range(SIZE_B):
-        bits = solution[pos:pos + BITS_N]
-        val = int(''.join(map(str, bits)), 2)
-        nu.append(val)
-        pos += BITS_N
-
-    return mu, nu
+    rank_a_bits = solution[:NO_BITS_RANK_A]
+    rank_b_bits = solution[NO_BITS_RANK_A:]
+    rank_a = int(''.join(map(str, rank_a_bits)), 2)
+    rank_b = int(''.join(map(str, rank_b_bits)), 2)
+    if rank_a >= NO_RANKS_A or rank_a < 0:
+        return False,[],[]
+    if rank_b >= NO_RANKS_B or rank_b < 0:
+        return False,[],[]
+    #print(f"rank_a: {rank_a}, rank_b: {rank_b}")
+    perm_a = unrank_perm(SIZE_A, rank_a)
+    perm_b = unrank_perm(SIZE_B, rank_b)
+    return True, perm_a,perm_b
 
 def cumulative_sum(arr):
     return np.cumsum(arr).tolist()
@@ -110,10 +133,11 @@ def to_binary(value, number_of_bits, lsb=False):
 
 
 
-def fitness_function(solution) -> int:
+def fitness_function(solution) -> (bool,int):
     # chromosome encoding: [ u | ν ]
-    mu,nu = decode_solution(solution)
-
+    valid,mu,nu = decode_solution(solution)
+    if valid == False:
+        return False, 0
 
 
     # Check if valid permutations (exact set match)
