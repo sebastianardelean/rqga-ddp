@@ -1,4 +1,6 @@
+import pygad
 from qiskit import QuantumCircuit, transpile, QuantumRegister,ClassicalRegister
+from qiskit.circuit import Instruction
 from qiskit_aer import AerSimulator
 from qiskit.visualization import plot_histogram
 from qiskit.circuit.library import MCXGate
@@ -9,25 +11,25 @@ import numpy as np
 import math
 import operator
 
-def to_binary(value, number_of_bits, lsb=False):
+def to_binary(value, number_of_bits, lsb=False)->np.ndarray:
     if lsb == True:
         return np.flip(np.array(list(np.binary_repr(value, number_of_bits)), dtype=int))
     return np.array(list(np.binary_repr(value, number_of_bits)), dtype=int)
 
-def bin_to_dec(bit_str):
+def bin_to_dec(bit_str) -> int:
     bits = np.array(list(bit_str), dtype=int)  # convert to array
     decimal = np.dot(bits, 2 ** np.arange(bits.size))  # unsigned value
     decimal = decimal - (1 << bits.size) * (bits[-1])  # apply 2's complement if MSB=1
     return int(decimal)
 
-def bin_to_dec_msb(bit_str):
+def bin_to_dec_msb(bit_str) -> int:
     bits = np.array(list(bit_str), dtype=int)           # covert to array
     decimal = np.dot(bits[::-1], 2 ** np.arange(bits.size))  # treat LSB at index 0
     decimal = decimal - (1 << bits.size) * bits[0]     # subtract 2^n if MSB=1
     return int(decimal)
 
 
-def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:int,fitness_function:callable):
+def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:int,fitness_function:callable) -> Instruction:
     # define quantum registers
     ind_qreg = QuantumRegister(no_of_qubits_individual, "ind_qreg")
     fit_qreg = QuantumRegister(no_of_qubits_fitness + 1, "fit_qreg")
@@ -67,7 +69,7 @@ def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:i
     return qc.to_instruction()
 
 
-def oracle(max_value, no_of_qubits_fitness:int, no_of_qubits_individual:int):
+def oracle(max_value, no_of_qubits_fitness:int, no_of_qubits_individual:int) -> Instruction:
     # define and initialize fitness quantum register
     fit_reg = QuantumRegister(no_of_qubits_fitness + 1, "fqreg")
     # define and initialize max quantum register
@@ -115,7 +117,7 @@ def oracle(max_value, no_of_qubits_fitness:int, no_of_qubits_individual:int):
     return oracle_circ.to_instruction()
 
 
-def grover(no_of_qubits_fitness:int):
+def grover(no_of_qubits_fitness:int) -> Instruction:
     fit_qreg = QuantumRegister(no_of_qubits_fitness + 1, "f")
 
     # create grover diffuser subcircuit
@@ -144,10 +146,13 @@ def rqga(
         no_of_qubits_fitness:int,
         no_of_generations:int,
         fitness_function:callable,
-        with_optimization: bool = False
+        initial_max_value:int,
+        no_of_fixed_genes: int = 0
+
+
 ) -> list[(int, int)]:
     rqga_results = []
-    max_value = -1
+    max_value = initial_max_value
     new_fitness_value = 0
     generation = 0
     no_of_grover_iterations = round(math.pi/4 * math.sqrt(2**no_of_qubits_fitness) - 0.5)
