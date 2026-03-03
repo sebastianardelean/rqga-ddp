@@ -1,4 +1,3 @@
-import pygad
 from qiskit import QuantumCircuit, transpile, QuantumRegister,ClassicalRegister
 from qiskit.circuit import Instruction
 from qiskit_aer import AerSimulator
@@ -47,18 +46,21 @@ def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:i
             if individual_binary[k] == 0:
                 qc.x(ind_qreg[k])
 
+
         # compute fitness
         valid, fitness_value = fitness_function(individual_binary)
+        fitness_value_binary = to_binary(
+            fitness_value, no_of_qubits_fitness, True
+        )
 
-        if fitness_value == 1:
-            qc.append(mcx, controls + [fit_qreg[0]])
-
-
+        # write fitness value
+        for k in range(no_of_qubits_fitness):
+            if fitness_value_binary[k] == 1:
+                qc.append(mcx, controls + [fit_qreg[k]])
 
         # mark validity bit
         if valid:
             qc.append(mcx, controls + [fit_qreg[no_of_qubits_fitness]])
-
         # uncompute individual
         for k in range(no_of_qubits_individual):
             if individual_binary[k] == 0:
