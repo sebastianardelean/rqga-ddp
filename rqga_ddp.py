@@ -20,13 +20,7 @@ def get_path(fig_name, fig_extension="pdf"):
     path = os.path.join(IMAGES_PATH, fig_name + "." + fig_extension)
     return path
 
-from qiskit import QuantumCircuit, transpile, QuantumRegister,ClassicalRegister
-from qiskit_aer import AerSimulator
-from qiskit.visualization import plot_histogram
-from qiskit.circuit.library import MCXGate
-from qiskit.circuit.library import grover_operator
-from qiskit.circuit.library import CDKMRippleCarryAdder
-from qiskit.circuit.library import FullAdderGate
+
 
 
 # PROBLEM SETUP
