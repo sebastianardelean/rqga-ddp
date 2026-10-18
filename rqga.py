@@ -9,6 +9,8 @@ from qiskit.circuit.library import FullAdderGate
 import numpy as np
 import math
 import operator
+from fnmatch import fnmatch
+
 
 def to_binary(value, number_of_bits, lsb=False)->np.ndarray:
     if lsb == True:
@@ -34,7 +36,7 @@ def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:i
     fit_qreg = QuantumRegister(no_of_qubits_fitness + 1, "fit_qreg")
 
     # create the U_fit subcircuit
-    qc = QuantumCircuit(ind_qreg, fit_qreg, name="U$_fit$")
+    qc = QuantumCircuit(ind_qreg, fit_qreg, name="U_fit")
 
     controls = [ind_qreg[j] for j in range(no_of_qubits_individual)]
     mcx = MCXGate(len(controls))  # reusable gate
@@ -112,7 +114,7 @@ def grover(no_of_qubits_fitness:int) -> Instruction:
     fit_qreg = QuantumRegister(no_of_qubits_fitness + 1, "f")
 
     # create grover diffuser subcircuit
-    grover_circ = QuantumCircuit(fit_qreg, name="U$_s$")
+    grover_circ = QuantumCircuit(fit_qreg, name="Diff")
 
     grover_circ.h(fit_qreg)
     grover_circ.x(fit_qreg)
@@ -150,12 +152,13 @@ def rqga(
 
     population_size = 2**no_of_qubits_individual
 
-    available_devices = AerSimulator(method="statevector").available_devices()
+    available_devices = AerSimulator(method="tensor_network").available_devices()
     if "GPU" not in available_devices:
         print(f"GPU device unavailable ({available_devices}), falling back to CPU")
     simulator = AerSimulator(
-        method="statevector", device="GPU" if "GPU" in available_devices else "CPU"
+        method="tensor_network", device="GPU" if "GPU" in available_devices else "CPU"
     )
+
     while new_fitness_value != max_value and generation < no_of_generations:
         # while generation < 1:
         print("Creating the circuit!")
@@ -191,17 +194,63 @@ def rqga(
         print("Creating grover gate")
         grover_gate = grover(no_of_qubits_fitness)
 
-        # for _ in range(0, no_of_grover_iterations):
-        for _ in range(0, 1):
-            print("Apply grover")
+        # for i in range(0, no_of_grover_iterations):
+        for i in range(0, 1):
+            print(f"Starting iteration {i}")
+            print("\tApply Grover's oracle")
             qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + carry_help[:] + ws[:])
+            print("\tApply Grover's diffuser")
             qc.append(grover_gate, fit_qreg[:])
 
         qc.barrier()
-
+        print("Measure the circuit")
         qc.measure(fit_qreg,creg)
+        print("Decomposing ")
 
-        qc = transpile(qc, simulator)
+        # gates_to_decompose = {
+        #     "U_fit",
+        #     "O",
+        #     "Diff",
+        #     "CDKMRippleCarryAdder",
+        #     "circuit-*",
+        #     "MAJ",
+        #     "UMA"
+        # }
+
+        # max_levels = 10
+
+        # for level in range(max_levels):
+        #     remaining = {
+        #         name
+        #         for name in qc.count_ops()
+        #         if any(fnmatch(name, pattern) for pattern in gates_to_decompose)
+        #     }
+
+        #     if not remaining:
+        #         print(f"Decomposition completed at level {level}")
+        #         break
+
+        #     print(f"Level {level + 1}: decomposing {remaining}")
+        #     qc = qc.decompose(gates_to_decompose=list(remaining))
+        # else:
+        #     print("Maximum decomposition depth reached")
+        #     print(
+        #         "Remaining operations:",
+        #         {
+        #             name
+        #             for name in qc.count_ops()
+        #             if any(fnmatch(name, pattern) for pattern in gates_to_decompose)
+        #         },
+        #     )
+
+        print("Transpile")
+        qc = transpile(qc, simulator,
+                   optimization_level=0)
+        print("Qubits:", qc.num_qubits)
+        print("Depth:", qc.depth())
+        print("Instructions:", len(qc.data))
+        print("Largest operation counts:", qc.count_ops())
+        print("Run simulation")
         results = simulator.run(qc).result()
         counts = results.get_counts()
         max_item = max(counts.items(), key=operator.itemgetter(1))
