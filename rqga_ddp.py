@@ -23,7 +23,14 @@ def get_path(fig_name, fig_extension="pdf"):
 
 
 
-# PROBLEM SETUP
+# PROBLEM SETUP (Section II A)
+# A, B and C are multisets of fragment lengths in increasing order:
+# A = {a_1, ..., a_m}, B = {b_1, ..., b_n}, C = {c_1, ..., c_k}
+# with sum(A) = sum(B) = sum(C).
+# The mapping sequences mu and nu are permutations of the indices
+# [1..m] and [1..n]; the goal is to find mu and nu such that the
+# reconstructed multiset C'_{mu,nu} equals C. With partial cleavage
+# error, the objective is min sum |C'_i - c_i|.
 
 A = [7, 8, 18]
 B = [1,2,2,4,5,5,5,9]
@@ -42,13 +49,16 @@ NO_BITS_RANK_A = math.ceil(math.log2(NO_RANKS_A))
 NO_BITS_RANK_B = math.ceil(math.log2(NO_RANKS_B))
 
 
-MAX_ERROR = 627
 # ENCODING
 
 BITS_M = math.ceil(math.log2(SIZE_A))
 BITS_N = math.ceil(math.log2(SIZE_B))
 NO_OF_QUBITS_INDIVIDUAL = NO_BITS_RANK_A + NO_BITS_RANK_B
 NO_OF_QUBITS_FITNESS = 10
+# The paper defines f(mu,nu) = 1 / (1 + sum|C'_i - c_i|), with optimum 1.
+# The RQGA encodes fitness on NO_OF_QUBITS_FITNESS qubits, so scale the
+# paper's fitness onto the largest representable integer.
+MAX_FITNESS = 2 ** NO_OF_QUBITS_FITNESS - 1
 
 POPULATION_SIZE = 2**NO_OF_QUBITS_INDIVIDUAL
 NO_OF_MAX_GROVER_ITERATIONS = round(math.pi/4 * math.sqrt(2**NO_OF_QUBITS_FITNESS) - 0.5)
@@ -103,17 +113,8 @@ def step_difference(arr):
     return [arr[0]] + [arr[i] - arr[i-1] for i in range(1, len(arr))]
 
 
-def fitness_function(solution) -> (bool,int):
-    # chromosome encoding: [ u | ν ]
-    valid,mu,nu = decode_solution(solution)
-    if valid == False:
-        return False, 0
-
-
-    # Check if valid permutations (exact set match)
-    if set(mu) != set(range(SIZE_A)) or set(nu) != set(range(SIZE_B)):
-        return False,0  # invalid permutation
-
+def cleavage_error(mu, nu) -> int:
+    # mapping sequences mu, nu reorder the fragments of A and B
     A_perm = [A[i] for i in mu]
     B_perm = [B[i] for i in nu]
     C_mod = list(TARGET)
@@ -121,7 +122,7 @@ def fitness_function(solution) -> (bool,int):
     k = len(C_mod)
     expected_k = SIZE_A + SIZE_B - 1
 
-    # --- REPAIR SEQUENCE LOGIC ---
+    # --- REPAIR SEQUENCE LOGIC (Section II B) ---
     if k < expected_k:
         # Rule 1: Add 0-length fragments to target C
         delta = expected_k - k
@@ -138,25 +139,30 @@ def fitness_function(solution) -> (bool,int):
     A_cum = cumulative_sum(A_perm)
     B_cum = cumulative_sum(B_perm)
 
-    merged = sorted(A_cum + B_cum)
+    # union of the accumulative summations: both end at sum(A) = sum(B),
+    # so exactly one copy of the shared final total is kept
+    merged = sorted(A_cum[:-1] + B_cum)
 
+    # step difference of the union yields C_{mu,nu}; sorted in
+    # increasing order it is C'_{mu,nu}
     steps = step_difference(merged)
 
-    steps_sorted = sorted(set(steps))
+    C_prime = sorted(steps)
+
+    error = sum(abs(s - t) for s, t in zip(C_prime, sorted(C_mod)))
+    return error
 
 
+def fitness_function(solution) -> (bool,int):
+    # chromosome encoding: [ u | ν ]
+    valid,mu,nu = decode_solution(solution)
+    if valid == False:
+        return False, 0
 
-    error = sum(abs(s - t) for s, t in zip(steps_sorted, TARGET))
-#    fitness = 1.0 / (1.0 + error)
-#    print(f"mu: {mu}; nu:{nu} -> fitness: {fitness}")
-    return True,  max(0, MAX_ERROR - error)
+    error = cleavage_error(mu, nu)
+    # integer encoding of the paper's fitness 1 / (1 + error)
+    return True, MAX_FITNESS // (1 + error)
 
-def string_to_list(string):
-    return_list = []
-    for i in string:
-        if i != " ":
-            return_list.append(int(i))
-    return return_list
 
 def optimization_fitness_function(solution)->(bool,int):
     # chromosome encoding: [ u | ν ]
@@ -164,52 +170,10 @@ def optimization_fitness_function(solution)->(bool,int):
     if valid == False:
         return False, 0
 
-    # Check if valid permutations (exact set match)
-    if set(mu) != set(range(SIZE_A)) or set(nu) != set(range(SIZE_B)):
-        return False, 0  # invalid permutation
-
-    A_perm = [A[i] for i in mu]
-    B_perm = [B[i] for i in nu]
-    C_mod = list(TARGET)
-
-    k = len(C_mod)
-    expected_k = SIZE_A + SIZE_B - 1
-
-    # --- REPAIR SEQUENCE LOGIC ---
-    if k < expected_k:
-        # Rule 1: Add 0-length fragments to target C
-        delta = expected_k - k
-        C_mod.extend([0] * delta)
-
-    elif k > expected_k:
-        # Rule 2: Add 0-length fragments to the shorter sequence among A and B
-        delta = k - expected_k
-        if SIZE_A <= SIZE_B:
-            A_perm.extend([0] * delta)
-        else:
-            B_perm.extend([0] * delta)
-
-    A_cum = cumulative_sum(A_perm)
-    B_cum = cumulative_sum(B_perm)
-
-    merged = sorted(A_cum + B_cum)
-
-    steps = step_difference(merged)
-
-    steps_sorted = sorted(set(steps))
-
-    error = sum(abs(s - t) for s, t in zip(steps_sorted, TARGET))
-    return True, error
+    return True, cleavage_error(mu, nu)
 
 if __name__ == '__main__':
     # Run the RQGA to reduce the search space
 
-    gene_individual = 10
-    gene_fitness = 10
-    no_of_generations = 10
-
-
-
-
-    final_results = rqga(NO_OF_QUBITS_INDIVIDUAL,NO_OF_QUBITS_FITNESS,NO_OF_GENERATIONS,fitness_function,0)
+    final_results = rqga(NO_OF_QUBITS_INDIVIDUAL,NO_OF_QUBITS_FITNESS,NO_OF_GENERATIONS,fitness_function,1)
     print(f"Results: {final_results}")

@@ -85,7 +85,7 @@ def oracle(max_value, no_of_qubits_fitness:int, no_of_qubits_individual:int) -> 
 
     subtractor = CDKMRippleCarryAdder(no_of_qubits_fitness , kind='full')
     adder = CDKMRippleCarryAdder(no_of_qubits_fitness , kind='fixed')
-    oracle_circ = QuantumCircuit(fit_reg, max_reg, carry_in, oracle, name="O")
+    oracle_circ = QuantumCircuit(fit_reg, max_reg, carry_in, carry_out, carry_help, oracle, name="O")
     # Encode for subtraction
 
     oracle_circ.x(carry_in[0])
@@ -99,22 +99,11 @@ def oracle(max_value, no_of_qubits_fitness:int, no_of_qubits_individual:int) -> 
     # keep in mind that the valid is 1 if the individual is valid.
     # Therefore, if fitness is the target, all the bits should be 0, except valid.
     oracle_circ.x(fit_reg)
-    oracle_circ.x(fit_reg[no_of_qubits_fitness])
     controls = [fit_reg[i] for i in range(no_of_qubits_fitness + 1)]
     mcx = MCXGate(len(controls))  # reusable gate
     oracle_circ.append(mcx, controls + [oracle[0]])
-    oracle_circ.x(fit_reg[no_of_qubits_fitness])
     oracle_circ.x(fit_reg)
-
-
-
-
     oracle_circ.append(adder, max_reg[:] + fit_reg[:-1] + [carry_help[0]])
-
-    oracle_circ.cx(max_reg[0], fit_reg[0])
-
-
-
 
     return oracle_circ.to_instruction()
 
@@ -158,7 +147,15 @@ def rqga(
     new_fitness_value = 0
     generation = 0
     no_of_grover_iterations = round(math.pi/4 * math.sqrt(2**no_of_qubits_fitness) - 0.5)
+
     population_size = 2**no_of_qubits_individual
+
+    available_devices = AerSimulator(method="statevector").available_devices()
+    if "GPU" not in available_devices:
+        print(f"GPU device unavailable ({available_devices}), falling back to CPU")
+    simulator = AerSimulator(
+        method="statevector", device="GPU" if "GPU" in available_devices else "CPU"
+    )
     while new_fitness_value != max_value and generation < no_of_generations:
         # while generation < 1:
         print("Creating the circuit!")
@@ -169,8 +166,8 @@ def rqga(
         carry_help = QuantumRegister(1, "help")
         ws = QuantumRegister(1, "ws")
         max_qreg = QuantumRegister(no_of_qubits_fitness, "max")
-        creg = ClassicalRegister(no_of_qubits_fitness, "m")
-        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, max_qreg, ws, creg)
+        creg = ClassicalRegister(no_of_qubits_fitness + 1, "m")
+        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
 
         print("Creating the superposition")
         qc.h(ind_qreg)
@@ -203,14 +200,13 @@ def rqga(
         qc.barrier()
 
         qc.measure(fit_qreg,creg)
-        simulator = AerSimulator(method="statevector", device="GPU")
 
         qc = transpile(qc, simulator)
         results = simulator.run(qc).result()
         counts = results.get_counts()
         max_item = max(counts.items(), key=operator.itemgetter(1))
         print(f"Counts are: {counts} and max is:{max_item}")
-        new_fitness_value = bin_to_dec_msb(max_item[0])
+        new_fitness_value = bin_to_dec_msb(max_item[0][1:])
         print(
             f"Found solution with fitness {new_fitness_value} in generation {generation} with {no_of_grover_iterations} grover iterations")
         rqga_results.append((generation, new_fitness_value))
