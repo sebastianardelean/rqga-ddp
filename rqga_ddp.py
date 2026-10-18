@@ -175,5 +175,10 @@ def optimization_fitness_function(solution)->(bool,int):
 if __name__ == '__main__':
     # Run the RQGA to reduce the search space
 
+    print(f"Qubits Individual: {NO_OF_QUBITS_INDIVIDUAL}")
+    print(f"Qubits Fitness: {NO_OF_QUBITS_FITNESS}")
+    print(f"Total number of qubits: {NO_OF_QUBITS_INDIVIDUAL + NO_OF_QUBITS_FITNESS}")
+
+    
     final_results = rqga(NO_OF_QUBITS_INDIVIDUAL,NO_OF_QUBITS_FITNESS,NO_OF_GENERATIONS,fitness_function,1)
     print(f"Results: {final_results}")
