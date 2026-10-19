@@ -12,6 +12,24 @@ import operator
 from fnmatch import fnmatch
 
 
+def select_simulator() -> AerSimulator:
+    # Prefer the tensor-network method (GPU when available). Some qiskit-aer
+    # builds are compiled without tensor_network support, so probe it first
+    # and fall back to statevector instead of failing at runtime.
+    method = "tensor_network"
+    try:
+        available_devices = AerSimulator(method=method).available_devices()
+    except Exception:
+        method = "statevector"
+        print("tensor_network method unavailable, falling back to statevector")
+        available_devices = AerSimulator(method=method).available_devices()
+    if "GPU" not in available_devices:
+        print(f"GPU device unavailable ({available_devices}), falling back to CPU")
+    return AerSimulator(
+        method=method, device="GPU" if "GPU" in available_devices else "CPU"
+    )
+
+
 def to_binary(value, number_of_bits, lsb=False)->np.ndarray:
     if lsb == True:
         return np.flip(np.array(list(np.binary_repr(value, number_of_bits)), dtype=int))
@@ -32,8 +50,10 @@ def bin_to_dec_msb(bit_str) -> int:
 
 def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:int,fitness_function:callable) -> Instruction:
     # define quantum registers
+    # The fitness value is encoded on no_of_qubits_fitness + 1 qubits
+    # (two's complement, sign bit included) plus one validity qubit.
     ind_qreg = QuantumRegister(no_of_qubits_individual, "ind_qreg")
-    fit_qreg = QuantumRegister(no_of_qubits_fitness + 1, "fit_qreg")
+    fit_qreg = QuantumRegister(no_of_qubits_fitness + 2, "fit_qreg")
 
     # create the U_fit subcircuit
     qc = QuantumCircuit(ind_qreg, fit_qreg, name="U_fit")
@@ -52,17 +72,17 @@ def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:i
         # compute fitness
         valid, fitness_value = fitness_function(individual_binary)
         fitness_value_binary = to_binary(
-            fitness_value, no_of_qubits_fitness, True
+            fitness_value, no_of_qubits_fitness + 1, True
         )
 
-        # write fitness value
-        for k in range(no_of_qubits_fitness):
+        # write fitness value (sign bit included)
+        for k in range(no_of_qubits_fitness + 1):
             if fitness_value_binary[k] == 1:
                 qc.append(mcx, controls + [fit_qreg[k]])
 
         # mark validity bit
         if valid:
-            qc.append(mcx, controls + [fit_qreg[no_of_qubits_fitness]])
+            qc.append(mcx, controls + [fit_qreg[no_of_qubits_fitness + 1]])
         # uncompute individual
         for k in range(no_of_qubits_individual):
             if individual_binary[k] == 0:
@@ -74,40 +94,80 @@ def ufit(population_size:int,no_of_qubits_individual:int, no_of_qubits_fitness:i
 
 
 def oracle(max_value, no_of_qubits_fitness:int, no_of_qubits_individual:int) -> Instruction:
-    # define and initialize fitness quantum register
-    fit_reg = QuantumRegister(no_of_qubits_fitness + 1, "fqreg")
-    # define and initialize max quantum register
-    max_reg = QuantumRegister(no_of_qubits_fitness, "max")
-    # define and initialize carry quantum register
+    # Fitness register: value field on no_of_qubits_fitness + 1 qubits
+    # (f_M ... f_0, two's complement) followed by the validity qubit.
+    value_bits = no_of_qubits_fitness + 1
+    fit_reg = QuantumRegister(value_bits + 1, "fqreg")
+    max_reg = QuantumRegister(value_bits, "max")
     carry_in = QuantumRegister(1, "cin")
     carry_out = QuantumRegister(1, "cout")
-    carry_help = QuantumRegister(1, "help")
-    # define and initialize oracle workspace quantum register
+    sign_copy = QuantumRegister(1, "signcopy")
     oracle = QuantumRegister(1, "oqreg")
 
-    subtractor = CDKMRippleCarryAdder(no_of_qubits_fitness , kind='full')
-    adder = CDKMRippleCarryAdder(no_of_qubits_fitness , kind='fixed')
-    oracle_circ = QuantumCircuit(fit_reg, max_reg, carry_in, carry_out, carry_help, oracle, name="O")
-    # Encode for subtraction
+    subtractor = CDKMRippleCarryAdder(value_bits, kind='full')
+    oracle_circ = QuantumCircuit(
+        fit_reg, max_reg, carry_in, carry_out, sign_copy, oracle, name="O"
+    )
 
-    oracle_circ.x(carry_in[0])
+    value = fit_reg[:value_bits]
+    sign = fit_reg[value_bits - 1]
+    ports = [carry_in[0]] + max_reg[:] + value + [carry_out[0]]
+
+    # Remember whether the stored fitness is a non-negative value (sign 0).
+    oracle_circ.cx(sign, sign_copy[0])
+
+    # value := value + ~max + 0 = value - max - 1 (mod 2**(M+1)).
+    # For a non-negative stored value the sign bit of the result is 0 exactly
+    # when value > max.
     oracle_circ.x(max_reg)
+    oracle_circ.append(subtractor, ports)
 
-    oracle_circ.append(subtractor, [carry_in[0]] + max_reg[:] + fit_reg[:-1] + [carry_out[0]])
+    # Phase-flip marked states (the oracle workspace qubit is in |->).
+    oracle_circ.x(sign)
+    oracle_circ.x(sign_copy[0])
+    oracle_circ.append(
+        MCXGate(2), [sign, sign_copy[0], oracle[0]]
+    )
+    oracle_circ.x(sign_copy[0])
+    oracle_circ.x(sign)
 
-
-
-    # flip ancilla if fitreg = 0. After subtraction, if max is the actual fitness value, then the result in fitreg = 0 -> solution
-    # keep in mind that the valid is 1 if the individual is valid.
-    # Therefore, if fitness is the target, all the bits should be 0, except valid.
-    oracle_circ.x(fit_reg)
-    controls = [fit_reg[i] for i in range(no_of_qubits_fitness + 1)]
-    mcx = MCXGate(len(controls))  # reusable gate
-    oracle_circ.append(mcx, controls + [oracle[0]])
-    oracle_circ.x(fit_reg)
-    oracle_circ.append(adder, max_reg[:] + fit_reg[:-1] + [carry_help[0]])
+    # Uncompute the subtraction, restoring value, max, carry_in and carry_out.
+    oracle_circ.append(subtractor.inverse(), ports)
+    oracle_circ.x(max_reg)
+    oracle_circ.cx(sign, sign_copy[0])
 
     return oracle_circ.to_instruction()
+
+
+def diffuser(no_of_qubits:int) -> Instruction:
+    # Grover diffuser (inversion about the uniform superposition) on the
+    # searched qubits. The fitness register stays entangled with the
+    # individual register, so the amplification has to act on the individual
+    # (respectively free) qubits; diffusing the fitness register alone cannot
+    # change its measurement statistics.
+    qreg = QuantumRegister(no_of_qubits, "d")
+
+    diffuser_circ = QuantumCircuit(qreg, name="Diff")
+    if no_of_qubits == 0:
+        return diffuser_circ.to_instruction()
+
+    diffuser_circ.h(qreg)
+    diffuser_circ.x(qreg)
+
+    if no_of_qubits == 1:
+        diffuser_circ.z(qreg[0])
+    else:
+        diffuser_circ.h(qreg[no_of_qubits - 1])
+        controls = [qreg[i] for i in range(no_of_qubits - 1)]
+        diffuser_circ.append(
+            MCXGate(len(controls)), controls + [qreg[no_of_qubits - 1]]
+        )
+        diffuser_circ.h(qreg[no_of_qubits - 1])
+
+    diffuser_circ.x(qreg)
+    diffuser_circ.h(qreg)
+
+    return diffuser_circ.to_instruction()
 
 
 def grover(no_of_qubits_fitness:int) -> Instruction:
@@ -140,108 +200,81 @@ def rqga(
         no_of_generations:int,
         fitness_function:callable,
         initial_max_value:int,
-        no_of_fixed_genes: int = 0
-
-
+        no_of_fixed_genes: int = 0,
+        no_of_grover_iterations: int = None,
 ) -> list[(int, int)]:
     rqga_results = []
     max_value = initial_max_value
-    new_fitness_value = 0
     generation = 0
-    no_of_grover_iterations = round(math.pi/4 * math.sqrt(2**no_of_qubits_fitness) - 0.5)
 
     population_size = 2**no_of_qubits_individual
 
-    available_devices = AerSimulator(method="tensor_network").available_devices()
-    if "GPU" not in available_devices:
-        print(f"GPU device unavailable ({available_devices}), falling back to CPU")
-    simulator = AerSimulator(
-        method="tensor_network", device="GPU" if "GPU" in available_devices else "CPU"
-    )
+    simulator = select_simulator()
 
-    while new_fitness_value != max_value and generation < no_of_generations:
+    while generation < no_of_generations:
         # while generation < 1:
         print("Creating the circuit!")
         ind_qreg = QuantumRegister(no_of_qubits_individual, "i")
-        fit_qreg = QuantumRegister(no_of_qubits_fitness + 1, "f")
+        fit_qreg = QuantumRegister(no_of_qubits_fitness + 2, "f")
         carry_in = QuantumRegister(1, "cin")
         carry_out = QuantumRegister(1, "cout")
-        carry_help = QuantumRegister(1, "help")
+        sign_copy = QuantumRegister(1, "signcopy")
         ws = QuantumRegister(1, "ws")
-        max_qreg = QuantumRegister(no_of_qubits_fitness, "max")
-        creg = ClassicalRegister(no_of_qubits_fitness + 1, "m")
-        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, carry_help, max_qreg, ws, creg)
+        max_qreg = QuantumRegister(no_of_qubits_fitness + 1, "max")
+        creg = ClassicalRegister(no_of_qubits_individual, "m")
+        qc = QuantumCircuit(ind_qreg, fit_qreg, carry_in, carry_out, sign_copy, max_qreg, ws, creg)
+
+        marked = 0
+        for i in range(population_size):
+            individual = to_binary(i, no_of_qubits_individual, True)
+            valid, value = fitness_function(individual)
+            if valid and value > max_value:
+                marked += 1
+        if marked == 0:
+            break
+        if no_of_grover_iterations is None:
+            iterations = max(
+                0,
+                int(round(math.pi / 4 * math.sqrt(population_size / marked) - 0.5)),
+            )
+        else:
+            iterations = no_of_grover_iterations
+        print(f"Marked individuals: {marked}/{population_size}, using {iterations} grover iteration(s)")
 
         print("Creating the superposition")
         qc.h(ind_qreg)
         qc.x(ws)
         qc.h(ws)
 
-        print("Applying ufit")
-        ufit_gate = ufit(population_size,no_of_qubits_individual, no_of_qubits_fitness,fitness_function)
-        qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
-        max_value = new_fitness_value
-        max_value_bin = to_binary(max_value, no_of_qubits_fitness, True)
+        if iterations > 0:
+            print("Applying ufit")
+            ufit_gate = ufit(population_size,no_of_qubits_individual, no_of_qubits_fitness,fitness_function)
+            max_value_bin = to_binary(max_value, no_of_qubits_fitness + 1, True)
 
-        print("Encoding max value")
-        # Encode Max value into max_reg
-        for i in range(0, no_of_qubits_fitness):
-            if max_value_bin[i] == 1:
-                qc.x(max_qreg[i])
+            print("Encoding max value")
+            for i in range(0, no_of_qubits_fitness + 1):
+                if max_value_bin[i] == 1:
+                    qc.x(max_qreg[i])
 
-        print("Creating the oracle gate")
-        oracle_gate = oracle(max_value_bin,no_of_qubits_fitness, no_of_qubits_individual)
-        print("Creating grover gate")
-        grover_gate = grover(no_of_qubits_fitness)
+            print("Creating the oracle gate")
+            oracle_gate = oracle(max_value_bin,no_of_qubits_fitness, no_of_qubits_individual)
+            print("Creating grover gate")
+            diffuser_gate = diffuser(no_of_qubits_individual)
 
-        # for i in range(0, no_of_grover_iterations):
-        for i in range(0, 1):
-            print(f"Starting iteration {i}")
-            print("\tApply Grover's oracle")
-            qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + carry_help[:] + ws[:])
-            print("\tApply Grover's diffuser")
-            qc.append(grover_gate, fit_qreg[:])
+            for i in range(iterations):
+                print(f"Starting iteration {i}")
+                print("\tApply ufit")
+                qc.append(ufit_gate, ind_qreg[:] + fit_qreg[:])
+                print("\tApply Grover's oracle")
+                qc.append(oracle_gate, fit_qreg[:] + max_qreg[:] + carry_in[:] + carry_out[:] + sign_copy[:] + ws[:])
+                print("\tUncompute ufit")
+                qc.append(ufit_gate.inverse(), ind_qreg[:] + fit_qreg[:])
+                print("\tApply Grover's diffuser")
+                qc.append(diffuser_gate, ind_qreg[:])
 
         qc.barrier()
         print("Measure the circuit")
-        qc.measure(fit_qreg,creg)
-        print("Decomposing ")
-
-        # gates_to_decompose = {
-        #     "U_fit",
-        #     "O",
-        #     "Diff",
-        #     "CDKMRippleCarryAdder",
-        #     "circuit-*",
-        #     "MAJ",
-        #     "UMA"
-        # }
-
-        # max_levels = 10
-
-        # for level in range(max_levels):
-        #     remaining = {
-        #         name
-        #         for name in qc.count_ops()
-        #         if any(fnmatch(name, pattern) for pattern in gates_to_decompose)
-        #     }
-
-        #     if not remaining:
-        #         print(f"Decomposition completed at level {level}")
-        #         break
-
-        #     print(f"Level {level + 1}: decomposing {remaining}")
-        #     qc = qc.decompose(gates_to_decompose=list(remaining))
-        # else:
-        #     print("Maximum decomposition depth reached")
-        #     print(
-        #         "Remaining operations:",
-        #         {
-        #             name
-        #             for name in qc.count_ops()
-        #             if any(fnmatch(name, pattern) for pattern in gates_to_decompose)
-        #         },
-        #     )
+        qc.measure(ind_qreg, creg)
 
         print("Transpile")
         qc = transpile(qc, simulator,
@@ -250,19 +283,23 @@ def rqga(
         print("Depth:", qc.depth())
         print("Instructions:", len(qc.data))
         print("Largest operation counts:", qc.count_ops())
-        print("Run simulation")
-        results = simulator.run(qc).result()
-        counts = results.get_counts()
-        max_item = max(counts.items(), key=operator.itemgetter(1))
-        print(f"Counts are: {counts} and max is:{max_item}")
-        new_fitness_value = bin_to_dec_msb(max_item[0][1:])
-        print(
-            f"Found solution with fitness {new_fitness_value} in generation {generation} with {no_of_grover_iterations} grover iterations")
-        rqga_results.append((generation, new_fitness_value))
-
+        for attempt in range(0, 8):
+            print("Run simulation")
+            results = simulator.run(qc).result()
+            counts = results.get_counts()
+            max_item = max(counts.items(), key=operator.itemgetter(1))
+            print(f"Counts are: {counts} and max is:{max_item}")
+            individual = to_binary(int(max_item[0], 2), no_of_qubits_individual, True)
+            valid, new_fitness_value = fitness_function(individual)
+            print(
+                f"Found solution with fitness {new_fitness_value} in generation {generation} with {iterations} grover iterations")
+            if valid and new_fitness_value > max_value:
+                break
+            if attempt < 7:
+                print("No improvement measured, retrying the measurement")
+        else:
+            break
+        max_value = new_fitness_value
+        rqga_results.append((generation, max_value))
         generation += 1
-        # reset max value qreg
-        for i in range(0, no_of_qubits_fitness):
-            if max_value_bin[i] == 1:
-                qc.x(max_qreg[i])
     return rqga_results
